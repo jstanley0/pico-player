@@ -1,5 +1,5 @@
 # this needs to match the value in firmware/sound.py
-CLOCK_FREQ = 2_000_000
+CLOCK_FREQ = 1_200_000
 
 from argparse import ArgumentParser
 from mido import MidiFile
@@ -107,6 +107,7 @@ class Encoder:
                 for w in range(5,-1,-1):
                     if self.notes_playing[w] == None:
                         return w
+            # TODO: maybe: pick a lower-priority voice to interrupt/preempt
             return None
         except KeyError:
             # this channel is excluded
@@ -150,6 +151,12 @@ class Encoder:
         print(self.notes_playing)
         print('---')
 
+    # shift notes up an octave if they would otherwise overflow the frequency register
+    def __remap_note_if_necessary(self, note):
+        while self.__midi_note_to_frequency(note) >= 1024:
+            note += 12
+        return note
+
     def __midi_note_to_frequency(self, midi_note):
         return round(CLOCK_FREQ / (32 * 440.0 * math.pow(2, (midi_note - 69.0) / 12)))
 
@@ -178,6 +185,7 @@ class Encoder:
     #  0 C0 V1 V0 D1 D0 F9 F8 F7 F6 F5 F4 F3 F2 F1 F0
     def __write_note_on(self, v, note, velocity):
         channel, voice = self.__decode_voice(v)
+        note = self.__remap_note_if_necessary(note)
         frequency = self.__midi_note_to_frequency(note)
         dynamic = self.__midi_velocity_to_dynamic(velocity)
         u16 = (channel & 1) << 14

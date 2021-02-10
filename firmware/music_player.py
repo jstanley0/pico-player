@@ -53,9 +53,9 @@ class MusicPlayer:
                     mask = word & 0xFF
                     self.__notes_off(mask)
         finally:
+            self.timer.deinit()
             self.__lights_off()
             self.sound.silence()
-            self.timer.deinit()
 
     def __init_leds(self):
         self.pwms = []

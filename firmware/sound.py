@@ -20,7 +20,7 @@ def __xfer_prog():
 
 class Sound:
     BASE_PIN = 0
-    CLOCK_PIN = 16
+    CLOCK_PIN = 15
     CLOCK_FREQ = 1_200_000
     LEFT = 0x200
     RIGHT = 0x100

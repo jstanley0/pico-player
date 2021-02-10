@@ -15,7 +15,7 @@ def read_words(filename):
                 i += 2
 
 class MusicPlayer:
-    DYNAMICS = [(9, 13), (6, 10), (3, 8), (0, 6)]
+    DYNAMICS = [(9, 13), (6, 11), (3, 9), (0, 7)]
     LED_PINS = [16, 17, 18, None, 19, 20, 21, None]
     def __init__(self):
         self.sound = Sound()
@@ -76,7 +76,7 @@ class MusicPlayer:
     def __set_led_intensity(self, voice, atten):
         if self.pwms[voice]:
             duty = (15 - atten)
-            duty = duty * duty * 288
+            duty = duty * duty * duty * duty
             self.pwms[voice].duty_u16(duty)
 
     def __note_on(self, voice, frequency, dynamic):

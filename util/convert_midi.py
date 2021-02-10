@@ -194,7 +194,7 @@ class Encoder:
             return (1, v - 3)
 
     def __voice_bit(self, v):
-        if v < 4:
+        if v < 3:
             return 1 << v
         else:
             return 0x10 << (v - 3)

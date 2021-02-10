@@ -45,7 +45,7 @@ class Event:
 
 class Encoder:
     def __init__(self, channel_priority):
-        self.notes_playing = [None, None, None, None, None, None]
+        self.notes_playing = [None] * 6
         self.events = []
         self.__compute_channel_sort_keys(channel_priority)
         self.__compute_preferred_voice(channel_priority)

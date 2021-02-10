@@ -35,25 +35,33 @@ class Sound:
         self.__init_xfer()
         self.silence()
 
-    def set_frequency(self, channel, voice, freq):
+    def set_frequency(self, voice, freq):
+        channel, voice = self.__unpack_voice(voice)
         self.__send_byte(channel, 0x80 | (voice << 5) | (freq & 0x0F))
         self.__send_byte(channel, freq >> 4)
 
-    def set_attenuation(self, channel, voice, atten):
+    def set_attenuation(self, voice, atten):
+        channel, voice = self.__unpack_voice(voice)
         self.__send_byte(channel, 0x90 | (voice << 5) | atten)
 
-    def set_noise(self, channel, noise):
+    def set_noise(self, voice, noise):
+        channel, voice = self.__unpack_voice(voice)
         self.__send_byte(channel, 0xE0 | noise)
 
     def silence(self):
-        for voice in range(4):
-            self.set_attenuation(Sound.LEFT, voice, 15)
-            self.set_attenuation(Sound.RIGHT, voice, 15)
+        for voice in range(8):
+            self.set_attenuation(voice, 15)
 
     def shutdown(self):
         self.silence()
         self.__stop_xfer()
         self.__stop_clock()
+
+    def __unpack_voice(self, voice):
+        if voice < 4:
+            return (Sound.LEFT, voice)
+        else:
+            return (Sound.RIGHT, voice - 4)
 
     def __init_clock(self):
         self.clock_sm = StateMachine(0, __clock_prog, freq=self.clock_freq*2, set_base=self.clock_pin)

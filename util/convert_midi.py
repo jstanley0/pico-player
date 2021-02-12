@@ -1,9 +1,5 @@
-# this needs to match the value in firmware/sound.py
-CLOCK_FREQ = 1_200_000
-
 from argparse import ArgumentParser
 from mido import MidiFile
-import math
 
 parser = ArgumentParser(description='Convert MIDI file for pico_player')
 parser.add_argument('infile', type=str, help='input midi file')
@@ -12,36 +8,25 @@ parser.add_argument('-p', '--channel-priority', type=int, metavar='CHANNEL', nar
 parser.add_argument('outfile', type=str, help='output binary file')
 args = parser.parse_args()
 
+class Note:
+    def __init__(self, midi_note, channel, velocity=0, timestamp=0):
+        self.midi_note = midi_note
+        self.channel = channel
+        self.velocity = velocity
+        self.timestamp = timestamp
+
 class Event:
-    def __init__(self, delay=0):
-        self._delay = delay
-        self._notes_on = []
-        self._notes_off = []
+    def __init__(self, delay, previous_timestamp):
+        self.delay = delay
+        self.timestamp = previous_timestamp + delay
+        self.notes_on = []
+        self.notes_off = []
 
-    def delay(self):
-        return self._delay
-
-    def add_delay(self, t):
-        self._delay += t
-        return self._delay
-
-    def add_note_on(self, note):
-        self._notes_on.append(note)
-
-    def add_note_off(self, note):
-        self._notes_off.append(note)
-
-    def notes_on(self):
-        return self._notes_on
-
-    def notes_off(self):
-        return self._notes_off
-
-    def merge(self, note_off_event):
-        if note_off_event.notes_on():
+    def merge(self, prior_note_off_event):
+        if prior_note_off_event.notes_on:
             raise RuntimeError('invalid merge')
-        self.add_delay(note_off_event.delay())
-        self._notes_off.extend(note_off_event.notes_off())
+        self.delay += prior_note_off_event.delay
+        self.notes_off.extend(prior_note_off_event.notes_off)
 
 class Encoder:
     def __init__(self, channel_priority):
@@ -51,20 +36,20 @@ class Encoder:
         self.__compute_preferred_voice(channel_priority)
 
     def log_delay(self, delay):
-        if self.events and not self.events[-1].notes_on() and not self.events[-1].notes_off():
-            self.events[-1].add_delay(delay)
+        if self.events and not self.events[-1].notes_on and not self.events[-1].notes_off:
+            self.events[-1].delay += delay
         else:
-            self.events.append(Event(delay))
+            self.events.append(Event(delay, self.__previous_timestamp()))
 
     def log_note_on(self, note, channel, velocity):
         if channel == 10:
             return  # TODO: map percussion to noise channels
-        self.__ensure_event()
-        self.events[-1].add_note_on((note, channel, velocity))
+        event = self.__ensure_event()
+        event.notes_on.append(Note(note, channel, velocity, timestamp=event.timestamp))
 
     def log_note_off(self, note, channel):
-        self.__ensure_event()
-        self.events[-1].add_note_off((note, channel))
+        event = self.__ensure_event()
+        event.notes_off.append(Note(note, channel, timestamp=event.timestamp))
 
     def write_output(self, outfile):
         self.outfile = open(outfile, 'wb')
@@ -73,14 +58,14 @@ class Encoder:
             # if we have a note-off event followed by another event mere milliseconds later,
             # postpone the notes-off until the next event and consolidate delay events
             if pending_note_off_event:
-                if event.delay() < 0.01:
+                if event.delay < 0.01:
                     event.merge(pending_note_off_event)
                 else:
                     self.__write_event(pending_note_off_event)
                 pending_note_off_event = None
 
             # if this event is nothing but notes-off, see if we can merge it with the next one
-            if event.notes_off() and not event.notes_on():
+            if event.notes_off and not event.notes_on:
                 pending_note_off_event = event
             else:
                 self.__write_event(event)
@@ -90,7 +75,13 @@ class Encoder:
 
     def __ensure_event(self):
         if not self.events:
-            self.events.append(Event(0))
+            self.events.append(Event(0, 0))
+        return self.events[-1]
+
+    def __previous_timestamp(self):
+        if self.events:
+            return self.events[-1].timestamp
+        return 0
 
     def __compute_preferred_voice(self, channel_priority):
         order = [0, 5, 1, 4, 2, 3]
@@ -99,8 +90,6 @@ class Encoder:
         for ch in channel_priority:
             self.preferred_voice[ch] = order[ix]
             ix = (ix + 1) % len(order)
-        print('preferred_voice')
-        print(self.preferred_voice)
 
     def __compute_channel_sort_keys(self, channel_priority):
         key = 0
@@ -108,12 +97,10 @@ class Encoder:
         for ch in channel_priority:
             self.channel_sort_keys[ch] = key
             key += 1
-        print('channel_sort_keys')
-        print(self.channel_sort_keys)
 
     def __place_note(self, note):
         try:
-            v = self.preferred_voice[note[1]]
+            v = self.preferred_voice[note.channel]
             if self.notes_playing[v] == None:
                 # easy: our preferred voice is available
                 return v
@@ -128,89 +115,75 @@ class Encoder:
                 for w in range(5,-1,-1):
                     if self.notes_playing[w] == None:
                         return w
-            # TODO: maybe: pick a lower-priority voice to interrupt/preempt
+
+            # all channels are full: pick the oldest note of a lower channel priority, if playing, and preempt it
+            # but only do so if it's more than, say, an eighth of a second old, otherwise it'll sound bad
+            sort_key = self.channel_sort_keys[note.channel]
+            preempt_candidates = []
+            for v in range(6):
+                playing_note = self.notes_playing[v]
+                if sort_key < self.channel_sort_keys[playing_note.channel] and note.timestamp - playing_note.timestamp > 0.125:
+                    playing_note.voice = v
+                    preempt_candidates.append(playing_note)
+            if preempt_candidates:
+                doomed_note = min(preempt_candidates, key=lambda note: note.timestamp)
+                return doomed_note.voice
+
+            # the note had to be dropped :(
             return None
         except KeyError:
             # this channel is excluded
             return None
 
     def __write_event(self, event):
-        # sanity check
-        print('write_event:')
-        print(event.delay())
-        print(event.notes_off())
-        print(event.notes_on())
-
         # write delay
-        self.__write_delay(event.delay())
+        self.__write_delay(event.delay)
 
         # figure notes off
-        notes_off = 0
-        for note_off in event.notes_off():
-            try:
-                v = self.notes_playing.index(note_off)
-                self.notes_playing[v] = None
-                notes_off |= self.__voice_bit(v)
-            except ValueError:
-                # we probably had to drop this note earlier
-                # or maybe we're ignoring this channel entirely
-                pass
+        notes_off_mask = 0
+        for note_off in event.notes_off:
+            for v in range(6):
+                if self.notes_playing[v] and note_off.midi_note == self.notes_playing[v].midi_note and note_off.channel == self.notes_playing[v].channel:
+                    self.notes_playing[v] = None
+                    notes_off_mask |= self.__voice_bit(v)
 
         # write notes on
-        filtered_notes_on = filter(lambda note: note[1] in self.channel_sort_keys, event.notes_on())
-        notes_on = sorted(filtered_notes_on, key=lambda note: self.channel_sort_keys[note[1]])
+        filtered_notes_on = filter(lambda note: note.channel in self.channel_sort_keys, event.notes_on)
+        notes_on = sorted(filtered_notes_on, key=lambda note: self.channel_sort_keys[note.channel])
         for note_on in notes_on:
             v = self.__place_note(note_on)
             if v != None:
-                self.notes_playing[v] = (note_on[0], note_on[1])
-                self.__write_note_on(v, note_on[0], note_on[2])
+                self.notes_playing[v] = note_on
+                self.__write_note_on(v, note_on.midi_note, note_on.velocity)
                 # no need to write a note-off for this voice if we're starting a new note here now
-                notes_off &= ~self.__voice_bit(v)
+                notes_off_mask &= ~self.__voice_bit(v)
 
         # write remaining notes off, if any
-        if notes_off != 0:
-            self.__write_notes_off(notes_off)
+        if notes_off_mask != 0:
+            self.__write_notes_off(notes_off_mask)
 
-        print('notes_playing:')
-        print(self.notes_playing)
-        print('---')
-
-    # shift notes up an octave if they would otherwise overflow the frequency register
-    def __remap_note_if_necessary(self, note):
-        while self.__midi_note_to_frequency(note) >= 1024:
-            note += 12
-        return note
-
-    def __midi_note_to_frequency(self, midi_note):
-        return round(CLOCK_FREQ / (32 * 440.0 * math.pow(2, (midi_note - 69.0) / 12)))
-
-    def __midi_velocity_to_dynamic(self, velocity):
-        return int(velocity / 32)
+    def __midi_velocity_to_attenuation(self, velocity):
+        return 15 - int(velocity / 8)
 
     def __decode_voice(self, v):
+        # skip the noise channels
         if v < 3:
-            return (0, v)
+            return v
         else:
-            return (1, v - 3)
+            return v + 1
 
     def __voice_bit(self, v):
-        if v < 3:
-            return 1 << v
-        else:
-            return 0x10 << (v - 3)
+        return 1 << self.__decode_voice(v)
 
-    # note on: C = channel; V = voice; D = dynamic; F = freq
+    # note on: V = voice; A = attenuation; N = note
     # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
-    #  0 C0 V1 V0 D1 D0 F9 F8 F7 F6 F5 F4 F3 F2 F1 F0
+    #  0  0 V2 V1 V0 A3 A2 A1 A0 N6 N5 N4 N3 N2 N1 N0
     def __write_note_on(self, v, note, velocity):
-        channel, voice = self.__decode_voice(v)
-        note = self.__remap_note_if_necessary(note)
-        frequency = self.__midi_note_to_frequency(note)
-        dynamic = self.__midi_velocity_to_dynamic(velocity)
-        u16 = (channel & 1) << 14
-        u16 |= (voice & 3) << 12
-        u16 |= (dynamic & 3) << 10
-        u16 |= (frequency & 0x3FF)
+        voice = self.__decode_voice(v)
+        attenuation = self.__midi_velocity_to_attenuation(velocity)
+        u16 = (voice & 7) << 11
+        u16 |= (attenuation & 0xF) << 7
+        u16 |= (note & 0x7F)
         self.__write16(u16)
 
     # delay: D = delay in milliseconds
@@ -224,9 +197,9 @@ class Encoder:
         if delay > 0:
             self.__write16(0x8000 | delay)
 
-    # notes off: C = channel; L = left chip; R = right chip
+    # notes off: C = channel; V = voice mask
     # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
-    #  1  1  0  0  0  0  0  0 R3 R2 R1 R0 L3 L2 L1 L0
+    #  1  1  0  0  0  0  0  0 V7 V6 V5 V4 V3 V2 V1 V0
     def __write_notes_off(self, voice_mask):
         self.__write16(0xC000 | voice_mask)
 

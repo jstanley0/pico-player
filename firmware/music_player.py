@@ -53,6 +53,7 @@ class MusicPlayer:
                     #  1  1  0  0  0  0  0  0 V7 V6 V5 V4 V3 V2 V1 V0
                     mask = word & 0xFF
                     self.__notes_off(mask)
+            utime.sleep_ms(1000)
         finally:
             self.timer.deinit()
             self.__lights_off()

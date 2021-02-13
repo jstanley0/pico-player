@@ -46,10 +46,14 @@ class Encoder:
     def log_note_on(self, note, channel, velocity):
         if channel == 10:
             return  # TODO: map percussion to noise channels
+        if channel not in self.preferred_chip:
+            return
         event = self.__ensure_event()
         event.notes_on.append(Note(note, channel, velocity, timestamp=event.timestamp))
 
     def log_note_off(self, note, channel):
+        if channel not in self.preferred_chip:
+            return
         event = self.__ensure_event()
         event.notes_off.append(Note(note, channel, timestamp=event.timestamp))
 
@@ -245,7 +249,7 @@ encoder = Encoder(all_channels, priority_channels)
 for msg in midi:
     if msg.time > 0:
         encoder.log_delay(msg.time)
-    if not msg.is_meta and msg.channel + 1 in all_channels:
+    if not msg.is_meta:
         if msg.type == 'note_on':
             if msg.velocity == 0:
                 encoder.log_note_off(msg.note, msg.channel + 1)

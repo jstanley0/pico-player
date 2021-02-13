@@ -91,7 +91,7 @@ class MusicPlayer:
 
     def __note_on(self, voice, note, attenuation):
         self.atten[voice] = attenuation
-        self.target[voice] = min(attenuation + 4, 15)
+        self.target[voice] = min(attenuation + 3, 15)
         self.sound.set_frequency(voice, self.frequency_table[note])
         self.sound.set_attenuation(voice, self.atten[voice])
         self.__set_led_intensity(voice, self.atten[voice])

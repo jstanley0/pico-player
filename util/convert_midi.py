@@ -3,8 +3,10 @@ from mido import MidiFile
 
 parser = ArgumentParser(description='Convert MIDI file for pico_player')
 parser.add_argument('infile', type=str, help='input midi file')
-parser.add_argument('-p', '--channel-priority', type=int, metavar='CHANNEL', nargs='*',
-                    help='process (1-based) channels in the given order, excluding entirely if not given')
+parser.add_argument('-p', '--prioritize-channels', type=int, metavar='CHANNEL', nargs='*',
+                    help='give specific channels priority when filling voices')
+parser.add_argument('-x', '--exclude-channels', type=int, metavar='CHANNEL', nargs='*',
+                    help='exclude certain channels from the output file')
 parser.add_argument('outfile', type=str, help='output binary file')
 args = parser.parse_args()
 
@@ -29,11 +31,11 @@ class Event:
         self.notes_off.extend(prior_note_off_event.notes_off)
 
 class Encoder:
-    def __init__(self, channel_priority):
-        self.notes_playing = [None] * 6
+    def __init__(self, all_channels, priority_channels):
+        self.notes_playing = [Note(None, None)] * 6
         self.events = []
-        self.__compute_channel_sort_keys(channel_priority)
-        self.__compute_preferred_voice(channel_priority)
+        self.priority_channels = priority_channels
+        self.__assign_preferred_chip(all_channels)
 
     def log_delay(self, delay):
         if self.events and not self.events[-1].notes_on and not self.events[-1].notes_off:
@@ -83,46 +85,56 @@ class Encoder:
             return self.events[-1].timestamp
         return 0
 
-    def __compute_preferred_voice(self, channel_priority):
-        order = [0, 5, 1, 4, 2, 3]
-        ix = 0
-        self.preferred_voice = {}
-        for ch in channel_priority:
-            self.preferred_voice[ch] = order[ix]
-            ix = (ix + 1) % len(order)
+    def __assign_preferred_chip(self, all_channels):
+        chip = 0
+        self.preferred_chip = {}
+        for ch in all_channels:
+            self.preferred_chip[ch] = chip
+            chip ^= 1
 
-    def __compute_channel_sort_keys(self, channel_priority):
-        key = 0
-        self.channel_sort_keys = {}
-        for ch in channel_priority:
-            self.channel_sort_keys[ch] = key
-            key += 1
+    def __find_lru_available_voice(self, voice_range):
+        voice = None
+        for v in voice_range:
+            playing = self.notes_playing[v]
+            if not playing.midi_note:
+                if voice == None or playing.timestamp < self.notes_playing[voice].timestamp:
+                    voice = v
+        return voice
 
     def __place_note(self, note):
         try:
-            v = self.preferred_voice[note.channel]
-            if self.notes_playing[v] == None:
-                # easy: our preferred voice is available
-                return v
-            elif v < 3:
-                # try to find a voice on the left channel
-                # but prefer spilling to the right to dropping entirely
-                for w in range(6):
-                    if self.notes_playing[w] == None:
-                        return w
-            else:
-                # try to find a voice on the right channel
-                for w in range(5,-1,-1):
-                    if self.notes_playing[w] == None:
-                        return w
+            chip = self.preferred_chip[note.channel]
 
-            # all channels are full: pick the oldest note of a lower channel priority, if playing, and preempt it
-            # but only do so if it's more than, say, an eighth of a second old, otherwise it'll sound bad
-            sort_key = self.channel_sort_keys[note.channel]
+            # find the least-recently used slot on the preferred chip
+            if chip == 0:
+                voice_range = range(0, 3)
+            else:
+                voice_range = range(5, 2, -1)
+            voice = self.__find_lru_available_voice(voice_range)
+            if voice:
+                return voice
+
+            # no slots are available on the preferred chip, so see if we can spill to the other side
+            if chip == 0:
+                voice_range = range(3, 6)
+            else:
+                voice_range = range(2, -1, -1)
+            voice = self.__find_lru_available_voice(voice_range)
+            if voice:
+                return voice
+
+            # all channels are busy: possibly preempt a playing note
             preempt_candidates = []
             for v in range(6):
                 playing_note = self.notes_playing[v]
-                if sort_key < self.channel_sort_keys[playing_note.channel] and note.timestamp - playing_note.timestamp > 0.125:
+                if playing_note.channel in self.priority_channels:
+                    continue    # don't preempt a note in a priority channel
+                # don't preempt a note that started too recently or it'll sound bad
+                if note.channel in self.priority_channels:
+                    time_threshold = 0.075
+                else:
+                    time_threshold = 0.15
+                if note.channel in priority_channels or note.timestamp - playing_note.timestamp > time_threshold:
                     playing_note.voice = v
                     preempt_candidates.append(playing_note)
             if preempt_candidates:
@@ -143,13 +155,15 @@ class Encoder:
         notes_off_mask = 0
         for note_off in event.notes_off:
             for v in range(6):
-                if self.notes_playing[v] and note_off.midi_note == self.notes_playing[v].midi_note and note_off.channel == self.notes_playing[v].channel:
-                    self.notes_playing[v] = None
+                if note_off.midi_note == self.notes_playing[v].midi_note and note_off.channel == self.notes_playing[v].channel:
+                    self.notes_playing[v].midi_note = None
+                    self.notes_playing[v].channel = None
+                    # crucially, the timestamp is left alone here; this lets us maximize release time
                     notes_off_mask |= self.__voice_bit(v)
 
         # write notes on
-        filtered_notes_on = filter(lambda note: note.channel in self.channel_sort_keys, event.notes_on)
-        notes_on = sorted(filtered_notes_on, key=lambda note: self.channel_sort_keys[note.channel])
+        # this looks funny because False sorts before True, but this sorts notes in priority channels first
+        notes_on = sorted(event.notes_on, key=lambda note: note.channel not in self.priority_channels)
         for note_on in notes_on:
             v = self.__place_note(note_on)
             if v != None:
@@ -163,7 +177,7 @@ class Encoder:
             self.__write_notes_off(notes_off_mask)
 
     def __midi_velocity_to_attenuation(self, velocity):
-        return 15 - int(velocity / 8)
+        return 7 - int(velocity / 16)
 
     def __decode_voice(self, v):
         # skip the noise channels
@@ -212,18 +226,26 @@ midi = MidiFile(args.infile)
 # NOTE: 1 is added to channels to match user-visible channel numbers in e.g. MuseScore
 
 # I feel like there should be a better way to enumerate channels, but whatevs...
-channel_priority = args.channel_priority
-if not channel_priority:
-    channel_priority = set()
-    for msg in midi:
-        if msg.type == 'note_on':
-            channel_priority.add(msg.channel + 1)
+all_channels = set()
+for msg in midi:
+    if msg.type == 'note_on':
+        all_channels.add(msg.channel + 1)
 
-encoder = Encoder(channel_priority)
+# remove excluded channels
+if args.exclude_channels:
+    all_channels -= set(args.exclude_channels)
+
+# add priority channels
+if args.prioritize_channels:
+    priority_channels = set(args.prioritize_channels)
+else:
+    priority_channels = set()
+
+encoder = Encoder(all_channels, priority_channels)
 for msg in midi:
     if msg.time > 0:
         encoder.log_delay(msg.time)
-    if not msg.is_meta:
+    if not msg.is_meta and msg.channel + 1 in all_channels:
         if msg.type == 'note_on':
             if msg.velocity == 0:
                 encoder.log_note_off(msg.note, msg.channel + 1)

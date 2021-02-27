@@ -1,8 +1,10 @@
 # control a pair of TI SN76489 programmable sound generator ICs
 # wiring: base pin on LSB (both chips in parallel)
-#         base pin + 9 on left chip /WE
-#         base pin + 8 on right chip /WE
-#         both chips' /CE tied to GND, and both chips' READY disconnected
+#         base pin + 8 on left chip /WE
+#         base pin + 9 on right chip /WE
+#         base pin + 10 on left chip /OE
+#         base pin + 11 on right chip /OE
+#         both chips' READY disconnected
 
 from rp2 import PIO, asm_pio, StateMachine
 from machine import Pin
@@ -12,7 +14,7 @@ def __clock_prog():
     set(pins, 1)
     set(pins, 0)
 
-@asm_pio(out_init=(PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_HIGH, PIO.OUT_HIGH), out_shiftdir=PIO.SHIFT_RIGHT, set_init=(PIO.OUT_HIGH, PIO.OUT_HIGH))
+@asm_pio(out_init=(PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_LOW, PIO.OUT_HIGH, PIO.OUT_HIGH, PIO.OUT_LOW, PIO.OUT_LOW), out_shiftdir=PIO.SHIFT_RIGHT, set_init=(PIO.OUT_HIGH, PIO.OUT_HIGH))
 def __xfer_prog():
     pull()
     out(pins, 10)[31]
@@ -20,7 +22,7 @@ def __xfer_prog():
 
 class Sound:
     BASE_PIN = 0
-    CLOCK_PIN = 15
+    CLOCK_PIN = 12
     CLOCK_FREQ = 1_200_000
     LEFT = 0x200
     RIGHT = 0x100

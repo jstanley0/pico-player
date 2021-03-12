@@ -1,28 +1,25 @@
 EESchema-LIBRARY Version 2.4
 #encoding utf-8
 #
-# Connector_AudioPlug3
+# Connector_AudioJack3
 #
-DEF Connector_AudioPlug3 J 0 20 Y Y 1 F N
-F0 "J" 50 250 50 H V C CNN
-F1 "Connector_AudioPlug3" 50 -250 50 H V C CNN
-F2 "" 100 -50 50 H I C CNN
-F3 "" 100 -50 50 H I C CNN
+DEF Connector_AudioJack3 J 0 20 Y Y 1 F N
+F0 "J" 0 350 50 H V C CNN
+F1 "Connector_AudioJack3" 0 250 50 H V C CNN
+F2 "" 0 0 50 H I C CNN
+F3 "" 0 0 50 H I C CNN
 $FPLIST
- Plug*
+ Jack*
 $ENDFPLIST
 DRAW
-T 900 -100 0 50 0 0 0 R Normal 0 C C
-T 0 150 0 50 0 1 0 S Normal 0 C C
-T 0 -350 0 50 0 1 0 T Normal 0 C C
-S -150 150 -50 -150 0 1 10 N
-S -50 -50 -50 -50 0 1 0 N
-S -150 150 350 -150 1 1 10 f
-S 500 200 350 -200 1 1 10 f
-P 11 1 1 10 -150 150 -200 150 -250 100 -400 150 -500 50 -500 -50 -400 -150 -250 -100 -200 -150 -150 -150 -150 150 f
-X ~ R 600 0 100 L 50 50 1 1 P
-X ~ S 600 100 100 L 50 50 1 1 P
-X ~ T 600 -100 100 L 50 50 1 1 P
+S -200 -200 -250 -100 0 1 10 F
+S 100 150 -200 -200 0 1 10 f
+P 4 0 1 10 0 -100 25 -125 50 -100 100 -100 N
+P 5 0 1 10 -75 -100 -50 -125 -25 -100 -25 0 100 0 N
+P 5 0 1 10 100 100 -100 100 -100 -100 -125 -125 -150 -100 N
+X ~ R 200 0 100 L 50 50 1 1 P
+X ~ S 200 100 100 L 50 50 1 1 P
+X ~ T 200 -100 100 L 50 50 1 1 P
 ENDDRAW
 ENDDEF
 #

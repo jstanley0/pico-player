@@ -17,7 +17,7 @@ def read_words(filename):
                 i += 2
 
 class MusicPlayer:
-    LED_PINS = [16, 17, 18, None, 19, 20, 21, None]
+    LED_PINS = [16, 17, 18, 15, 19, 20, 21, 22]
     def __init__(self):
         self.sound = Sound()
         self.__init_frequency_table()

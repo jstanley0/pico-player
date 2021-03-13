@@ -1,7 +1,10 @@
 # pico-player
 Music player for Raspberry Pi Pico and a pair of SN76489s
 
+![pico-player in action](https://user-images.githubusercontent.com/713453/111035663-b18e4e00-83d8-11eb-9ce9-d51c39f6256e.mov "pico-player in action")
+
 ## How it works
+
  * A (very) short PIO program clocks both sound chips. This could also be done with PWM, but the fractional multiplier on the Pico's PIO controller gives us a lot of flexibility on what frequency to clock the chips at, and since the chip has only a 10-bit frequency register, there are tradeoffs between clock rate and usable note range.
  * Another short PIO program sends data to both chips. It just tosses 10 bits at the first ten GPIOs, where the first eight go to both chips' data lines, and the last two go to each chip's Write Enable line. By setting exactly one of those bits, I control which sound chip latches the value. The PIO program then waits the requisite 32 cycles for the SN76489 to complete the I/O, while the main Python program keeps running! It just tosses a value in the FIFO and forgets. It's magic.
  * A timer callback fires every 50ms and manages the sound envelope for each playing note, and also updates the brightness of each LED.

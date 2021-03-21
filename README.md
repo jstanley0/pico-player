@@ -11,9 +11,9 @@ Music player for Raspberry Pi Pico and a pair of SN76489s
  * The LEDs are managed with PWM. The Pico has *sixteen* PWM channels and they work with *any* of the GPIOs. It's magic.
  
 ## The hard part
-Getting music data into a usable format is tricky. I wrote a script (util/convert_midi.py) that translates note-on and note-off events into a simple binary format that the microcontroller program can parse and play. The primary challenge is that we have only six notes of polyphony to work with, so it works best with simple MIDI files. I suggest editing the MIDI files beforehand in e.g. MuseScore and removing extraneous channels.
+Getting music data into a usable format is tricky. I wrote a script (util/convert_midi.py) that translates note-on and note-off events into a simple binary format that the microcontroller program can parse and play. The primary challenge is that we have only six notes of polyphony to work with, so it works best with simple MIDI files. I suggest opening files in e.g. MuseScore beforehand to identify channels to prioritize (with -p) or exclude (with -x). If no arguments are given, convert_midi.py will prioritize channels in tracks named "melody" or "vocals".
  
-## Wiring
+## Wiring (see KiCad schematic in hardware/pico-player-pcb)
  * GPIOs 0..7 to the data lines of both sound chips in parallel (GPIO 0 to pin 10)
  * GPIO 8 to the left chip's /WE line (pin 5)
  * GPIO 9 to the right chip's /WE line

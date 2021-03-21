@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from mido import MidiFile
+import re
 
 parser = ArgumentParser(description='Convert MIDI file for pico_player')
 parser.add_argument('infile', type=str, help='input midi file')
@@ -244,6 +245,16 @@ if args.prioritize_channels:
     priority_channels = set(args.prioritize_channels)
 else:
     priority_channels = set()
+    melody_track_pattern = re.compile('melody|vocals', re.I)
+    for track in midi.tracks:
+        if melody_track_pattern.match(track.name):
+            track_channels = set()
+            for msg in track:
+                if msg.type == 'note_on':
+                    track_channels.add(msg.channel + 1)
+            print("{file}: prioritized melody track \"{name}\" channels {channels}".format(file=args.infile,name=track.name,channels=track_channels))
+            priority_channels = priority_channels.union(track_channels)
+        
 
 encoder = Encoder(all_channels, priority_channels)
 for msg in midi:

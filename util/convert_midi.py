@@ -32,10 +32,11 @@ class Event:
         self.notes_off.extend(prior_note_off_event.notes_off)
 
 class Encoder:
-    def __init__(self, all_channels, priority_channels):
+    def __init__(self, all_channels, priority_channels, max_velocity):
         self.notes_playing = [Note(None, None)] * 6
         self.events = []
         self.priority_channels = priority_channels
+        self.velocity_adjustment = 127 - max_velocity
         self._assign_preferred_chip(all_channels)
 
     def log_delay(self, delay):
@@ -182,7 +183,7 @@ class Encoder:
             self._write_notes_off(notes_off_mask)
 
     def _midi_velocity_to_attenuation(self, velocity):
-        return 7 - int(velocity / 16)
+        return 7 - int((velocity + self.velocity_adjustment) / 16)
 
     def _decode_voice(self, v):
         # skip the noise channels
@@ -231,10 +232,14 @@ midi = MidiFile(args.infile)
 # NOTE: 1 is added to channels to match user-visible channel numbers in e.g. MuseScore
 
 # I feel like there should be a better way to enumerate channels, but whatevs...
+# I'll also find the maximum note velocity in this pass so I can normalize song volumes on the device
 all_channels = set()
+max_velocity = 0
 for msg in midi:
     if msg.type == 'note_on':
         all_channels.add(msg.channel + 1)
+        if msg.velocity > max_velocity:
+            max_velocity = msg.velocity
 
 # remove excluded channels
 if args.exclude_channels:
@@ -256,7 +261,7 @@ else:
             priority_channels = priority_channels.union(track_channels)
 
 
-encoder = Encoder(all_channels, priority_channels)
+encoder = Encoder(all_channels, priority_channels, max_velocity)
 for msg in midi:
     if msg.time > 0:
         encoder.log_delay(msg.time)

@@ -205,9 +205,9 @@ class Encoder:
 
     LEFT_NOISE_PRIORITY = [
         { 'notes': [35, 36, 41, 45], 'noise': LOW_WHITE, 'atten': 0, 'sustain': 0 }, # bass drum-ish
-        { 'notes': [51, 59], 'noise': HIGH_WHITE, 'atten': 4, 'sustain': 3 }, # ride cymbal
-        { 'notes': [0, 46, 53, 54, 55, 58, 70], 'noise': HIGH_WHITE, 'atten': 4, 'sustain': 1 }, # open hi-hat
-        { 'notes': [42, 44], 'noise': HIGH_WHITE, 'atten': 3, 'sustain': 0 } # closed hi-hat
+        { 'notes': [51, 59], 'noise': HIGH_WHITE, 'atten': 4, 'sustain': 7 }, # ride cymbal
+        { 'notes': [0, 46, 53, 54, 55, 58, 70], 'noise': HIGH_WHITE, 'atten': 4, 'sustain': 3 }, # open hi-hat
+        { 'notes': [42, 44], 'noise': HIGH_WHITE, 'atten': 4, 'sustain': 0 } # closed hi-hat
     ]
 
     RIGHT_NOISE_PRIORITY = [

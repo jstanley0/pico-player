@@ -204,18 +204,18 @@ class Encoder:
     LOW_WHITE = 6
 
     LEFT_NOISE_PRIORITY = [
-        { 'notes': [35, 36, 41, 45], 'noise': LOW_WHITE, 'atten': 1, 'sustain': 1 }, # bass drum-ish
-        { 'notes': [51, 59], 'noise': MID_WHITE, 'atten': 4, 'sustain': 3 }, # ride cymbal
-        { 'notes': [0, 46, 53, 54, 55, 58, 70], 'noise': HIGH_WHITE, 'atten': 4, 'sustain': 3 }, # open hi-hat
-        { 'notes': [42, 44], 'noise': MID_WHITE, 'atten': 4, 'sustain': 1 } # closed hi-hat
+        { 'notes': [35, 36, 41, 45], 'noise': LOW_WHITE, 'atten': 0, 'sustain': 0 }, # bass drum-ish
+        { 'notes': [51, 59], 'noise': HIGH_WHITE, 'atten': 4, 'sustain': 3 }, # ride cymbal
+        { 'notes': [0, 46, 53, 54, 55, 58, 70], 'noise': HIGH_WHITE, 'atten': 4, 'sustain': 1 }, # open hi-hat
+        { 'notes': [42, 44], 'noise': HIGH_WHITE, 'atten': 0, 'sustain': 0 } # closed hi-hat
     ]
 
     RIGHT_NOISE_PRIORITY = [
-        { 'notes': [37, 38, 39, 40, 52, 55], 'noise': HIGH_WHITE, 'atten': 0, 'sustain': 1 }, # snare-ish
-        { 'notes': [49, 57], 'noise': HIGH_WHITE, 'atten': 1, 'sustain': 4 }, # crash cymbal
-        { 'notes': [50, 56, 71, 72, 80, 81], 'noise': HIGH_PERIODIC, 'atten': 4, 'sustain': 2 }, # hi tom, etc.
-        { 'notes': [48, 60, 62, 63, 65, 67, 76], 'noise': MID_PERIODIC, 'atten': 4, 'sustain': 2 }, # mid tom, etc.
-        { 'notes': [47, 61, 64, 66, 68, 77], 'noise': LOW_PERIODIC, 'atten': 4, 'sustain': 2 } # low tom, etc.
+        { 'notes': [37, 38, 39, 40, 52, 55], 'noise': HIGH_WHITE, 'atten': 0, 'sustain': 0 }, # snare-ish
+        { 'notes': [49, 57], 'noise': MID_WHITE, 'atten': 1, 'sustain': 7 }, # crash cymbal
+        { 'notes': [50, 56, 71, 72, 80, 81], 'noise': HIGH_PERIODIC, 'atten': 4, 'sustain': 1 }, # hi tom, etc.
+        { 'notes': [48, 60, 62, 63, 65, 67, 76], 'noise': MID_PERIODIC, 'atten': 4, 'sustain': 1 }, # mid tom, etc.
+        { 'notes': [47, 61, 64, 66, 68, 77], 'noise': LOW_PERIODIC, 'atten': 4, 'sustain': 1 } # low tom, etc.
     ]
 
     def _map_hit(self, priority, hits):
@@ -262,11 +262,11 @@ class Encoder:
 
     # noise on: V = voice; A = attenuation; S = sustain; N = noise type
     # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
-    #  0  1 V0 S5 S4 S3 S2 S1 S0 A3 A2 A1 A0 N2 N1 N0
+    #  0  1  0  0  0 V0 S2 S1 S0 A3 A2 A1 A0 N2 N1 N0
     def _write_noise(self, voice, noise, atten, sustain):
         u16 = 0x4000
-        u16 |= (voice & 0x1) << 13
-        u16 |= (sustain & 0x3F) << 7
+        u16 |= (voice & 0x1) << 10
+        u16 |= (sustain & 0x7) << 7
         u16 |= (atten & 0xF) << 3
         u16 |= (noise & 0x7)
         self._write16(u16)

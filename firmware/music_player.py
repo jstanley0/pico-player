@@ -23,12 +23,14 @@ class MusicPlayer:
         self._init_frequency_table()
         self.atten = [15] * 8
         self.target = [15] * 8
+        self.decay_mask = [3] * 8
+        self.decay_clock = 0
         self._init_leds()
         self.timer = Timer()
 
     def play_song(self, filename):
         try:
-            self.timer.init(freq=50, mode=Timer.PERIODIC, callback=self._process_envelopes)
+            self.timer.init(freq=80, mode=Timer.PERIODIC, callback=self._process_envelopes)
             for word in read_words(filename):
                 cmd = (word >> 14) & 0x3
                 if cmd == 0:
@@ -43,11 +45,11 @@ class MusicPlayer:
                 elif cmd == 1:
                     # noise on: V = voice; A = attenuation; S = sustain; N = noise type
                     # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
-                    #  0  1 V0 S5 S4 S3 S2 S1 S0 A3 A2 A1 A0 N2 N1 N0
-                    noise = (word & 0x7)
-                    atten = (word & 0x78) >> 3
-                    sustain = (word & 0x1f80) >> 7
-                    voice = (word & 0x2000) >> 13
+                    #  0  1  0  0  0 V0 S2 S1 S0 A3 A2 A1 A0 N2 N1 N0
+                    noise = (word & 0b111)
+                    atten = (word & 0b1111000) >> 3
+                    sustain = (word & 0b1110000000) >> 7
+                    voice = (word & 0b10000000000) >> 10
                     voice = 3 + (voice * 4)
                     self._noise_on(voice, noise, sustain, atten)
 
@@ -110,7 +112,8 @@ class MusicPlayer:
 
     def _noise_on(self, voice, noise, sustain, attenuation):
         self.atten[voice] = attenuation
-        self.target[voice] = 15 # TODO actually make use of sustain!
+        self.target[voice] = 15
+        self.decay_mask[voice] = sustain
         self.sound.set_noise(voice, noise)
         self.sound.set_attenuation(voice, attenuation)
         self._set_led_intensity(voice, attenuation)
@@ -121,10 +124,13 @@ class MusicPlayer:
                 self.target[voice] = 15
 
     def _process_envelopes(self, _timer):
-        # TODO make percussion envelopes decay at different rates
+        self.decay_clock = (self.decay_clock + 1) & 7
         for voice in range(8):
-            if self.atten[voice] < self.target[voice]:
-                self.atten[voice] += 1
-                self.sound.set_attenuation(voice, self.atten[voice])
-                self._set_led_intensity(voice, self.atten[voice])
+            if (self.decay_mask[voice] & self.decay_clock) == 0:
+                if self.atten[voice] < self.target[voice]:
+                    self.atten[voice] += 1
+                    self.sound.set_attenuation(voice, self.atten[voice])
+                    self._set_led_intensity(voice, self.atten[voice])
+
+
 

@@ -24,9 +24,10 @@ class Event:
         self.timestamp = previous_timestamp + delay
         self.notes_on = []
         self.notes_off = []
+        self.percussion = []
 
     def merge(self, prior_note_off_event):
-        if prior_note_off_event.notes_on:
+        if prior_note_off_event.notes_on or prior_note_off_event.percussion:
             raise RuntimeError('invalid merge')
         self.delay += prior_note_off_event.delay
         self.notes_off.extend(prior_note_off_event.notes_off)
@@ -37,21 +38,27 @@ class Encoder:
         self.events = []
         self.priority_channels = priority_channels
         self.velocity_adjustment = 127 - max_velocity
+        self.include_percussion = False
         self._assign_preferred_chip(all_channels)
 
     def log_delay(self, delay):
-        if self.events and not self.events[-1].notes_on and not self.events[-1].notes_off:
+        if self.events and not self.events[-1].notes_on and not self.events[-1].notes_off and not self.events[-1].percussion:
             self.events[-1].delay += delay
         else:
             self.events.append(Event(delay, self._previous_timestamp()))
 
     def log_note_on(self, note, channel, velocity):
         if channel == 10:
-            return  # TODO: map percussion to noise channels
-        if channel not in self.preferred_chip:
-            return
+            if not self.include_percussion:
+                return
+        else:
+            if channel not in self.preferred_chip:
+                return
         event = self._ensure_event()
-        event.notes_on.append(Note(note, channel, velocity, timestamp=event.timestamp))
+        if channel == 10:
+            event.percussion.append(Note(note, channel, velocity))
+        else:
+            event.notes_on.append(Note(note, channel, velocity, timestamp=event.timestamp))
 
     def log_note_off(self, note, channel):
         if channel not in self.preferred_chip:
@@ -73,7 +80,7 @@ class Encoder:
                 pending_note_off_event = None
 
             # if this event is nothing but notes-off, see if we can merge it with the next one
-            if event.notes_off and not event.notes_on:
+            if event.notes_off and not event.notes_on and not event.percussion:
                 pending_note_off_event = event
             else:
                 self._write_event(event)
@@ -95,6 +102,9 @@ class Encoder:
         chip = 0
         self.preferred_chip = {}
         for ch in all_channels:
+            if ch == 10:
+                self.include_percussion = True
+                continue
             self.preferred_chip[ch] = chip
             chip ^= 1
 
@@ -178,9 +188,53 @@ class Encoder:
                 # no need to write a note-off for this voice if we're starting a new note here now
                 notes_off_mask &= ~self._voice_bit(v)
 
+        # translate and write percussion events
+        if event.percussion:
+            self._write_percussion(event.percussion)
+
         # write remaining notes off, if any
         if notes_off_mask != 0:
             self._write_notes_off(notes_off_mask)
+
+    HIGH_PERIODIC = 0
+    MID_PERIODIC = 1
+    LOW_PERIODIC = 2
+    HIGH_WHITE = 4
+    MID_WHITE = 5
+    LOW_WHITE = 6
+
+    LEFT_NOISE_PRIORITY = [
+        { 'notes': [35, 36, 41, 45], 'noise': LOW_WHITE, 'atten': 1, 'sustain': 1 }, # bass drum-ish
+        { 'notes': [51, 59], 'noise': MID_WHITE, 'atten': 4, 'sustain': 3 }, # ride cymbal
+        { 'notes': [0, 46, 53, 54, 55, 58, 70], 'noise': HIGH_WHITE, 'atten': 4, 'sustain': 3 }, # open hi-hat
+        { 'notes': [42, 44], 'noise': MID_WHITE, 'atten': 4, 'sustain': 1 } # closed hi-hat
+    ]
+
+    RIGHT_NOISE_PRIORITY = [
+        { 'notes': [37, 38, 39, 40, 52, 55], 'noise': HIGH_WHITE, 'atten': 0, 'sustain': 1 }, # snare-ish
+        { 'notes': [49, 57], 'noise': HIGH_WHITE, 'atten': 1, 'sustain': 4 }, # crash cymbal
+        { 'notes': [50, 56, 71, 72, 80, 81], 'noise': HIGH_PERIODIC, 'atten': 4, 'sustain': 2 }, # hi tom, etc.
+        { 'notes': [48, 60, 62, 63, 65, 67, 76], 'noise': MID_PERIODIC, 'atten': 4, 'sustain': 2 }, # mid tom, etc.
+        { 'notes': [47, 61, 64, 66, 68, 77], 'noise': LOW_PERIODIC, 'atten': 4, 'sustain': 2 } # low tom, etc.
+    ]
+
+    def _map_hit(self, priority, hits):
+        for info in priority:
+            for note in info['notes']:
+                if note in hits:
+                    return (info, hits[note])
+        return (None, None)
+
+    def _write_percussion(self, notes):
+        hits_by_midi_note = { hit.midi_note : hit for hit in notes }
+        info, note = self._map_hit(self.LEFT_NOISE_PRIORITY, hits_by_midi_note)
+        if info:
+            atten = info['atten'] + self._midi_velocity_to_attenuation(note.velocity)
+            self._write_noise(0, info['noise'], atten, info['sustain'])
+        info, note = self._map_hit(self.RIGHT_NOISE_PRIORITY, hits_by_midi_note)
+        if info:
+            atten = info['atten'] + self._midi_velocity_to_attenuation(note.velocity)
+            self._write_noise(1, info['noise'], atten, info['sustain'])
 
     def _midi_velocity_to_attenuation(self, velocity):
         return 7 - int((velocity + self.velocity_adjustment) / 16)
@@ -204,6 +258,17 @@ class Encoder:
         u16 = (voice & 7) << 11
         u16 |= (attenuation & 0xF) << 7
         u16 |= (note & 0x7F)
+        self._write16(u16)
+
+    # noise on: V = voice; A = attenuation; S = sustain; N = noise type
+    # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
+    #  0  1 V0 S5 S4 S3 S2 S1 S0 A3 A2 A1 A0 N2 N1 N0
+    def _write_noise(self, voice, noise, atten, sustain):
+        u16 = 0x4000
+        u16 |= (voice & 0x1) << 13
+        u16 |= (sustain & 0x3F) << 7
+        u16 |= (atten & 0xF) << 3
+        u16 |= (noise & 0x7)
         self._write16(u16)
 
     # delay: D = delay in milliseconds

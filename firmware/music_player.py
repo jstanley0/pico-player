@@ -28,9 +28,10 @@ class MusicPlayer:
 
     def play_song(self, filename):
         try:
-            self.timer.init(freq=20, mode=Timer.PERIODIC, callback=self._process_envelopes)
+            self.timer.init(freq=50, mode=Timer.PERIODIC, callback=self._process_envelopes)
             for word in read_words(filename):
-                if word & 0x8000 == 0:
+                cmd = (word >> 14) & 0x3
+                if cmd == 0:
                     # note on: V = voice; A = attenuation; N = note
                     # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
                     #  0  0 V2 V1 V0 A3 A2 A1 A0 N6 N5 N4 N3 N2 N1 N0
@@ -39,7 +40,18 @@ class MusicPlayer:
                     voice = (word & 0x3800) >> 11
                     self._note_on(voice, note, attenuation)
 
-                elif word & 0xC000 == 0x8000:
+                elif cmd == 1:
+                    # noise on: V = voice; A = attenuation; S = sustain; N = noise type
+                    # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
+                    #  0  1 V0 S5 S4 S3 S2 S1 S0 A3 A2 A1 A0 N2 N1 N0
+                    noise = (word & 0x7)
+                    atten = (word & 0x78) >> 3
+                    sustain = (word & 0x1f80) >> 7
+                    voice = (word & 0x2000) >> 13
+                    voice = 3 + (voice * 4)
+                    self._noise_on(voice, noise, sustain, atten)
+
+                elif cmd == 2:
                     # delay: D = delay in milliseconds
                     # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
                     #  1  0 DD DC DB DA D9 D8 D7 D6 D5 D4 D3 D2 D1 D0
@@ -47,7 +59,7 @@ class MusicPlayer:
                     # TODO use utime.ticks_ms() et al to deduct busy time from sleep time and avoid song slowdowns
                     utime.sleep_ms(ms)
 
-                elif word & 0xC000 == 0xC000:
+                else:
                     # notes off: C = channel; V = voice mask
                     # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
                     #  1  1  0  0  0  0  0  0 V7 V6 V5 V4 V3 V2 V1 V0
@@ -93,8 +105,15 @@ class MusicPlayer:
         self.atten[voice] = attenuation
         self.target[voice] = min(attenuation + 3, 15)
         self.sound.set_frequency(voice, self.frequency_table[note])
-        self.sound.set_attenuation(voice, self.atten[voice])
-        self._set_led_intensity(voice, self.atten[voice])
+        self.sound.set_attenuation(voice, attenuation)
+        self._set_led_intensity(voice, attenuation)
+
+    def _noise_on(self, voice, noise, sustain, attenuation):
+        self.atten[voice] = attenuation
+        self.target[voice] = 15 # TODO actually make use of sustain!
+        self.sound.set_noise(voice, noise)
+        self.sound.set_attenuation(voice, attenuation)
+        self._set_led_intensity(voice, attenuation)
 
     def _notes_off(self, mask):
         for voice in range(8):
@@ -102,6 +121,7 @@ class MusicPlayer:
                 self.target[voice] = 15
 
     def _process_envelopes(self, _timer):
+        # TODO make percussion envelopes decay at different rates
         for voice in range(8):
             if self.atten[voice] < self.target[voice]:
                 self.atten[voice] += 1

@@ -31,6 +31,7 @@ class MusicPlayer:
     def play_song(self, filename):
         try:
             self.timer.init(freq=80, mode=Timer.PERIODIC, callback=self._process_envelopes)
+            cmd_time = utime.ticks_ms()
             for word in read_words(filename):
                 cmd = (word >> 14) & 0x3
                 if cmd == 0:
@@ -58,8 +59,11 @@ class MusicPlayer:
                     # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
                     #  1  0 DD DC DB DA D9 D8 D7 D6 D5 D4 D3 D2 D1 D0
                     ms = word & 0x3FFF
-                    # TODO use utime.ticks_ms() et al to deduct busy time from sleep time and avoid song slowdowns
-                    utime.sleep_ms(ms)
+                    # TODO figure out why utime.sleep_ms() sometimes failed to wake up
+                    # and then be a bit nicer to the Pico by avoiding this busy wait
+                    cmd_time = utime.ticks_add(cmd_time, ms)
+                    while utime.ticks_diff(cmd_time, utime.ticks_ms()) > 0:
+                        pass
 
                 else:
                     # notes off: C = channel; V = voice mask

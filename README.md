@@ -31,6 +31,7 @@ Getting music data into a usable format is tricky. I wrote a script (util/conver
  * (optionally) one dual-gang 10k potentiometer for volume control (Alps RK09L)
  
 ## Wiring (see KiCad schematic in hardware/pico-player-pcb)
+![pico-player schematic](schematic.png)
  * VBUS to both chips' VCC (pin 16)
  * GND to both chips' GND (pin 8)
  * GPIOs 0..7 to the data lines of both sound chips in parallel (GPIO 0 to pin 10)

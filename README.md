@@ -3,16 +3,20 @@ Music player for Raspberry Pi Pico and a pair of SN76489s
 
 ![pico-player in action](https://user-images.githubusercontent.com/713453/111035663-b18e4e00-83d8-11eb-9ce9-d51c39f6256e.mov "pico-player in action")
 
-## Usage
- * Copy sound.py and music_player.py to your Pico
+## Installation
+ * Copy the contents of `firmware` (`sound.py` and `music_player.py` to your Pico), via `rshell cp firmware/* /pyboard` or pasting into Thonny, etc.
+ 
+## Playing songs from the Pico's file system
  * On your computer, run `python3 util/convert_midi.py example.mid example.dat`
- * Copy the output to the Pico via e.g. `rshell cp example.dat /pyboard`
+ * Copy the output to the Pico via e.g. `rshell cp example.dat /pyboard`. It is a binary file so pasting it via an IDE isn't going to work.
  * On the Pico, instantiate a MusicPlayer and play the song:
 ```
 from music_player import MusicPlayer
 mp = MusicPlayer()
 mp.play_song('example.dat')
 ```
+## Playing MIDI files from a connected computer
+ * run `python3 util/convert_midi.py example.mid -` 
 
 ## How it works
  * A (very) short PIO program clocks both sound chips. This could also be done with PWM, but the fractional multiplier on the Pico's PIO controller gives us a lot of flexibility on what frequency to clock the chips at, and since the chip has only a 10-bit frequency register, there are tradeoffs between clock rate and usable note range.

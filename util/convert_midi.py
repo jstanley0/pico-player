@@ -1,6 +1,8 @@
 from argparse import ArgumentParser
 from mido import MidiFile
 import re
+import io
+from pico_connection import PicoConnection
 
 parser = ArgumentParser(description='Convert MIDI file for pico_player')
 parser.add_argument('infile', type=str, help='input midi file')
@@ -8,7 +10,7 @@ parser.add_argument('-p', '--prioritize-channels', type=int, metavar='CHANNEL', 
                     help='give specific channels priority when filling voices')
 parser.add_argument('-x', '--exclude-channels', type=int, metavar='CHANNEL', nargs='*',
                     help='exclude certain channels from the output file')
-parser.add_argument('outfile', type=str, help='output binary file')
+parser.add_argument('outfile', type=str, help='output binary file, or use - to stream to the Pico')
 args = parser.parse_args()
 
 class Note:
@@ -67,7 +69,7 @@ class Encoder:
         event.notes_off.append(Note(note, channel, timestamp=event.timestamp))
 
     def write_output(self, outfile):
-        self.outfile = open(outfile, 'wb')
+        self.outfile = outfile
         pending_note_off_event = None
         for event in self.events:
             # if we have a note-off event followed by another event mere milliseconds later,
@@ -291,7 +293,6 @@ class Encoder:
     def _write16(self, u16):
         self.outfile.write(u16.to_bytes(2, byteorder='big', signed=False))
 
-
 midi = MidiFile(args.infile)
 
 # NOTE: 1 is added to channels to match user-visible channel numbers in e.g. MuseScore
@@ -338,4 +339,11 @@ for msg in midi:
                 encoder.log_note_on(msg.note, msg.channel + 1, msg.velocity)
         elif msg.type == 'note_off':
             encoder.log_note_off(msg.note, msg.channel + 1)
-encoder.write_output(args.outfile)
+
+if args.outfile == '-':
+    buf = io.BytesIO()
+    encoder.write_output(buf)
+    buf.seek(0, io.SEEK_SET)
+    PicoConnection().play_song(buf)
+else:
+    encoder.write_output(open(args.outfile, 'wb'))

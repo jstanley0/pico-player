@@ -30,52 +30,72 @@ class MusicPlayer:
 
     def play_song(self, filename):
         try:
-            self.timer.init(freq=80, mode=Timer.PERIODIC, callback=self._process_envelopes)
+            self.start_playing()
             cmd_time = utime.ticks_ms()
             for word in read_words(filename):
-                cmd = (word >> 14) & 0x3
-                if cmd == 0:
-                    # note on: V = voice; A = attenuation; N = note
-                    # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
-                    #  0  0 V2 V1 V0 A3 A2 A1 A0 N6 N5 N4 N3 N2 N1 N0
-                    note = word & 0x7F
-                    attenuation = (word & 0x780) >> 7
-                    voice = (word & 0x3800) >> 11
-                    self._note_on(voice, note, attenuation)
-
-                elif cmd == 1:
-                    # noise on: V = voice; A = attenuation; S = sustain; N = noise type
-                    # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
-                    #  0  1  0  0  0 V0 S2 S1 S0 A3 A2 A1 A0 N2 N1 N0
-                    noise = (word & 0b111)
-                    atten = (word & 0b1111000) >> 3
-                    sustain = (word & 0b1110000000) >> 7
-                    voice = (word & 0b10000000000) >> 10
-                    voice = 3 + (voice * 4)
-                    self._noise_on(voice, noise, sustain, atten)
-
-                elif cmd == 2:
-                    # delay: D = delay in milliseconds
-                    # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
-                    #  1  0 DD DC DB DA D9 D8 D7 D6 D5 D4 D3 D2 D1 D0
-                    ms = word & 0x3FFF
-                    # TODO figure out why utime.sleep_ms() sometimes failed to wake up
-                    # and then be a bit nicer to the Pico by avoiding this busy wait
-                    cmd_time = utime.ticks_add(cmd_time, ms)
-                    while utime.ticks_diff(cmd_time, utime.ticks_ms()) > 0:
-                        pass
-
-                else:
-                    # notes off: C = channel; V = voice mask
-                    # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
-                    #  1  1  0  0  0  0  0  0 V7 V6 V5 V4 V3 V2 V1 V0
-                    mask = word & 0xFF
-                    self._notes_off(mask)
+                cmd_time = self.play_word(word, cmd_time)
             utime.sleep_ms(1000)
         finally:
-            self.timer.deinit()
-            self._lights_off()
-            self.sound.silence()
+            self.finish_playing()
+
+    def play_words(self, words, cmd_time):
+        try:
+            for word in words:
+                cmd_time = self.play_word(word, cmd_time)
+            return cmd_time
+        except KeyboardInterrupt:
+            self.finish_playing()
+            raise
+
+    def play_word(self, word, cmd_time):
+        cmd = (word >> 14) & 0x3
+        if cmd == 0:
+            # note on: V = voice; A = attenuation; N = note
+            # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
+            #  0  0 V2 V1 V0 A3 A2 A1 A0 N6 N5 N4 N3 N2 N1 N0
+            note = word & 0x7F
+            attenuation = (word & 0x780) >> 7
+            voice = (word & 0x3800) >> 11
+            self._note_on(voice, note, attenuation)
+
+        elif cmd == 1:
+            # noise on: V = voice; A = attenuation; S = sustain; N = noise type
+            # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
+            #  0  1  0  0  0 V0 S2 S1 S0 A3 A2 A1 A0 N2 N1 N0
+            noise = (word & 0b111)
+            atten = (word & 0b1111000) >> 3
+            sustain = (word & 0b1110000000) >> 7
+            voice = (word & 0b10000000000) >> 10
+            voice = 3 + (voice * 4)
+            self._noise_on(voice, noise, sustain, atten)
+
+        elif cmd == 2:
+            # delay: D = delay in milliseconds
+            # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
+            #  1  0 DD DC DB DA D9 D8 D7 D6 D5 D4 D3 D2 D1 D0
+            ms = word & 0x3FFF
+            # TODO figure out why utime.sleep_ms() sometimes failed to wake up
+            # and then be a bit nicer to the Pico by avoiding this busy wait
+            cmd_time = utime.ticks_add(cmd_time, ms)
+            while utime.ticks_diff(cmd_time, utime.ticks_ms()) > 0:
+                pass
+
+        else:
+            # notes off: C = channel; V = voice mask
+            # 15 14 13 12 11 10  9  8  7  6  5  4  3  2  1  0
+            #  1  1  0  0  0  0  0  0 V7 V6 V5 V4 V3 V2 V1 V0
+            mask = word & 0xFF
+            self._notes_off(mask)
+
+        return cmd_time
+
+    def start_playing(self):
+        self.timer.init(freq=80, mode=Timer.PERIODIC, callback=self._process_envelopes)
+
+    def finish_playing(self):
+        self.timer.deinit()
+        self._lights_off()
+        self.sound.silence()
 
     def _init_frequency_table(self):
         self.frequency_table = array('H') # unsigned short
@@ -135,6 +155,3 @@ class MusicPlayer:
                     self.atten[voice] += 1
                     self.sound.set_attenuation(voice, self.atten[voice])
                     self._set_led_intensity(voice, self.atten[voice])
-
-
-
